@@ -1,0 +1,70 @@
+server:
+  port: 8090
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: mqtt-service
+
+  # PostgreSQL Database Configuration
+  datasource:
+    url: jdbc:postgresql://localhost:5432/cafeteriamasterdata
+    username: edgeman
+    password: iotiq
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  # JPA Configuration
+  jpa:
+    hibernate:
+      ddl-auto: update  # Change to 'none' in production
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        jdbc:
+          batch_size: 20
+        order_inserts: true
+        order_updates: true
+
+# MQTT Configuration (HiveMQ Cloud)
+mqtt:
+  broker:
+    url: ssl://6fdddaf19d614da29c86428142cbe7a2.s1.eu.hivemq.cloud:8883  # HiveMQ Cloud SSL
+    username: ruthvik         # Your HiveMQ username
+    password: Iotiq369.       # Your HiveMQ password
+    client-id: mqtt-data-consumer
+
+  topics:
+    - panpacific-topic
+    - Tandoor-topic
+    - Mediterranean-topic
+    # Add more topics as needed
+
+  qos: 1  # Quality of Service (0, 1, or 2)
+
+  connection:
+    keep-alive-interval: 60
+    connection-timeout: 30
+    automatic-reconnect: true
+    max-reconnect-delay: 30
+    clean-session: false
+
+# Logging Configuration
+logging:
+  level:
+    root: INFO
+    com.bmsedge.iotsensor: DEBUG
+    org.springframework.integration: INFO
+    org.eclipse.paho: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %msg%n"
+  file:
+    name: logs/mqtt-service.log
