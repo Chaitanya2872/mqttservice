@@ -9,9 +9,9 @@ spring:
 
   # PostgreSQL Database Configuration
   datasource:
-    url: jdbc:postgresql://localhost:5432/cafeteriamasterdata
-    username: edgeman
-    password: iotiq
+    url: jdbc:postgresql://45.79.122.134:5432/cafeteriamasterdata
+    username: jack2872
+    password: Tester@4723$
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 10
@@ -56,6 +56,16 @@ mqtt:
     automatic-reconnect: true
     max-reconnect-delay: 30
     clean-session: false
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://eureka-server:8761/eureka/
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${random.value}
 
 # Logging Configuration
 logging:
