@@ -1,6 +1,5 @@
 package com.bmsedge.mqtt.repository;
 
-import com.bmsedge.mqtt.dto.MqttAggregationDTO;
 import com.bmsedge.mqtt.model.MqttDataEntity;
 import com.bmsedge.mqtt.repository.view.CongestionTimelineView;
 import com.bmsedge.mqtt.repository.view.MqttAggregationView;
@@ -17,7 +16,7 @@ import java.util.List;
 public interface MqttDataRepository extends JpaRepository<MqttDataEntity, Long> {
 
     /* ============================================================
-       BASIC FETCH QUERIES (JPQL)
+       BASIC FETCH QUERIES (JPQL) - Used by LiveCounterStatusService
        ============================================================ */
 
     @Query("""
@@ -47,6 +46,38 @@ public interface MqttDataRepository extends JpaRepository<MqttDataEntity, Long> 
     """)
     List<MqttDataEntity> findAllByDeviceId(@Param("deviceId") String deviceId);
 
+    /**
+     * NEW: Find all records for device within time range
+     * Used by LiveCounterStatusService for trend analysis
+     */
+    @Query("""
+        SELECT m FROM MqttDataEntity m
+        WHERE m.deviceId = :deviceId
+          AND m.timestamp BETWEEN :startTime AND :endTime
+        ORDER BY m.timestamp ASC
+    """)
+    List<MqttDataEntity> findByDeviceIdAndTimestampBetween(
+            @Param("deviceId") String deviceId,
+            @Param("startTime") LocalDateTime startTime,
+            @Param("endTime") LocalDateTime endTime
+    );
+
+    /**
+     * NEW: Find all records for counter within time range
+     * Used by LiveCounterStatusService for trend analysis
+     */
+    @Query("""
+        SELECT m FROM MqttDataEntity m
+        WHERE m.counterName = :counterName
+          AND m.timestamp BETWEEN :startTime AND :endTime
+        ORDER BY m.timestamp ASC
+    """)
+    List<MqttDataEntity> findByCounterAndTimestampRange(
+            @Param("counterName") String counterName,
+            @Param("startTime") LocalDateTime startTime,
+            @Param("endTime") LocalDateTime endTime
+    );
+
     @Query("""
         SELECT m FROM MqttDataEntity m
         ORDER BY m.timestamp DESC
@@ -59,18 +90,6 @@ public interface MqttDataRepository extends JpaRepository<MqttDataEntity, Long> 
         ORDER BY m.timestamp DESC
     """)
     List<MqttDataEntity> findByTimestampRange(
-            @Param("startTime") LocalDateTime startTime,
-            @Param("endTime") LocalDateTime endTime
-    );
-
-    @Query("""
-        SELECT m FROM MqttDataEntity m
-        WHERE m.counterName = :counterName
-          AND m.timestamp BETWEEN :startTime AND :endTime
-        ORDER BY m.timestamp DESC
-    """)
-    List<MqttDataEntity> findByCounterAndTimestampRange(
-            @Param("counterName") String counterName,
             @Param("startTime") LocalDateTime startTime,
             @Param("endTime") LocalDateTime endTime
     );
@@ -90,7 +109,6 @@ public interface MqttDataRepository extends JpaRepository<MqttDataEntity, Long> 
 
     /**
      * Per-minute aggregation for a counter
-     * (PostgreSQL native because of date_trunc)
      */
     @Query(
             value = """
@@ -115,16 +133,9 @@ public interface MqttDataRepository extends JpaRepository<MqttDataEntity, Long> 
             value = """
         SELECT
             s.counter_name AS counterName,
-
-            -- ✅ Footfall: max per session, summed
             SUM(s.session_max) AS totalCount,
-
-            -- ✅ Peak queue (counter-wise, using in_count)
             MAX(s.peak_queue) AS peakQueue,
-
-            -- ✅ Peak wait time (counter-wise)
             MAX(s.peak_wait_time) AS peakWaitTime,
-
             TO_CHAR(MIN(s.min_timestamp), 'YYYY-MM-DD HH24:MI:SS') AS periodStart
         FROM (
             SELECT
@@ -174,19 +185,15 @@ public interface MqttDataRepository extends JpaRepository<MqttDataEntity, Long> 
             @Param("to") LocalDateTime to
     );
 
-
-
-
-
     @Query(
             value = """
         SELECT
             counter_name AS counterName,
-            queue_length AS peakQueue,
+            occupancy AS peakQueue,
             TO_CHAR(timestamp, 'YYYY-MM-DD HH24:MI:SS') AS peakQueueTime
         FROM mqtt_data
         WHERE timestamp BETWEEN :from AND :to
-        ORDER BY queue_length DESC, timestamp
+        ORDER BY occupancy DESC, timestamp
         LIMIT 1
     """,
             nativeQuery = true
@@ -213,6 +220,4 @@ public interface MqttDataRepository extends JpaRepository<MqttDataEntity, Long> 
             @Param("from") LocalDateTime from,
             @Param("to") LocalDateTime to
     );
-
-
 }

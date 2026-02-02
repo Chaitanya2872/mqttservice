@@ -1,11 +1,13 @@
 package com.bmsedge.mqtt.service;
 
 import com.bmsedge.mqtt.dto.MqttMessageDTO;
+import com.bmsedge.mqtt.event.MqttDataEvent;
 import com.bmsedge.mqtt.model.MqttDataEntity;
 import com.bmsedge.mqtt.repository.MqttDataRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -16,7 +18,7 @@ import java.util.List;
 
 /**
  * MQTT Data Service
- * Processes and saves MQTT messages
+ * Processes and saves MQTT messages - EVERY message creates a NEW row
  */
 @Slf4j
 @Service
@@ -25,9 +27,11 @@ public class MqttDataService {
 
     private final MqttDataRepository mqttDataRepository;
     private final ObjectMapper objectMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     /**
      * Process and save MQTT message
+     * ✅ EVERY call creates a NEW database row
      */
     @Transactional
     public void processMqttMessage(String jsonPayload) {
@@ -44,6 +48,7 @@ public class MqttDataService {
             }
 
             // Convert DTO to Entity and save
+            // This ALWAYS creates a new row (never updates)
             MqttDataEntity entity = convertToEntity(messageDTO);
             MqttDataEntity savedEntity = mqttDataRepository.save(entity);
 
@@ -54,6 +59,9 @@ public class MqttDataService {
                     savedEntity.getOccupancy(),
                     savedEntity.getInCount(),
                     savedEntity.getWaitTime());
+
+            // ✅ Publish event for live WebSocket broadcast
+            eventPublisher.publishEvent(new MqttDataEvent(this, savedEntity));
 
         } catch (Exception e) {
             log.error("❌ Error processing MQTT message: {}", e.getMessage(), e);
@@ -77,7 +85,7 @@ public class MqttDataService {
     }
 
     /**
-     * Convert DTO to Entity - Save raw data as-is
+     * Convert DTO to Entity - Creates NEW entity every time
      */
     private MqttDataEntity convertToEntity(MqttMessageDTO dto) {
         Double waitTime = dto.getWaitTimeInMinutes();

@@ -57,6 +57,16 @@ mqtt:
     max-reconnect-delay: 30
     clean-session: false
 
+eureka:
+  client:
+    service-url:
+      defaultZone: http://eureka-server:8761/eureka/
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${random.value}
+
 # Logging Configuration
 logging:
   level:

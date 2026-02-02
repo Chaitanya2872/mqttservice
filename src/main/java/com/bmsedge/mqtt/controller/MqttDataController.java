@@ -1,15 +1,12 @@
 package com.bmsedge.mqtt.controller;
 
-import com.bmsedge.mqtt.dto.MqttMessageDTO;
 import com.bmsedge.mqtt.model.MqttDataEntity;
 import com.bmsedge.mqtt.repository.MqttDataRepository;
 import com.bmsedge.mqtt.service.MqttDataService;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.http.HttpStatus;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -17,289 +14,287 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
+/**
+ * MQTT Data REST Controller
+ * Provides API endpoints for device service to fetch live and historical data
+ */
 @Slf4j
 @RestController
 @RequestMapping("/api/mqtt-data")
 @RequiredArgsConstructor
+@CrossOrigin(origins = "*")
 public class MqttDataController {
 
     private final MqttDataService mqttDataService;
     private final MqttDataRepository mqttDataRepository;
-    private final ObjectMapper objectMapper;
 
-    @PostMapping("/submit")
-    public ResponseEntity<Map<String, Object>> submitMessage(@RequestBody MqttMessageDTO message) {
-        try {
-            log.info("📨 Manual message submission: {}", message);
-            String jsonPayload = objectMapper.writeValueAsString(message);
-            log.debug("Converted JSON payload: {}", jsonPayload);
-            mqttDataService.processMqttMessage(jsonPayload);
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("status", "success");
-            response.put("message", "Data saved successfully");
-            response.put("timestamp", LocalDateTime.now());
-            response.put("deviceId", message.getDeviceId());
-            response.put("counterName", message.getCounterName());
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            log.error("Error submitting message: {}", e.getMessage(), e);
-            Map<String, Object> response = new HashMap<>();
-            response.put("status", "error");
-            response.put("message", e.getMessage());
-            response.put("details", e.getClass().getSimpleName());
-            return ResponseEntity.internalServerError().body(response);
-        }
-    }
-
+    /**
+     * Get latest single record for a device
+     * Used by LiveCounterStatusService.getCounterLiveStatus()
+     *
+     * Returns direct entity fields (no wrapper) on success
+     * Returns {"status": "not_found"} on failure
+     */
     @GetMapping("/device/{deviceId}/latest")
-    public ResponseEntity<?> getLatestByDevice(
-            @PathVariable("deviceId") String deviceId
-    ) {
-        try {
-            log.info("🔍 Fetching latest data for device: {}", deviceId);
+    public ResponseEntity<Map<String, Object>> getLatestByDevice(@PathVariable String deviceId) {
+        log.debug("📊 Fetching latest data for device: {}", deviceId);
 
-            MqttDataEntity data =
-                    mqttDataService.getLatestByDeviceId(deviceId);
+        MqttDataEntity data = mqttDataService.getLatestByDeviceId(deviceId);
 
-            if (data == null) {
-                log.warn("⚠️ No data found for device: {}", deviceId);
-
-                Map<String, Object> response = new HashMap<>();
-                response.put("status", "not_found");
-                response.put("message", "No data found for device: " + deviceId);
-                response.put("deviceId", deviceId);
-                response.put("timestamp", LocalDateTime.now());
-
-                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
-            }
-
-            log.info("✅ Found data for device {}: id={}, counter={}",
-                    deviceId, data.getId(), data.getCounterName());
-
-            return ResponseEntity.ok(data);
-
-        } catch (Exception e) {
-            log.error("❌ Error fetching latest data for device {}", deviceId, e);
-
+        if (data == null) {
+            // Return 404 with status field so LiveCounterStatusService knows it failed
             Map<String, Object> response = new HashMap<>();
-            response.put("status", "error");
-            response.put("message", "Error fetching data");
-            response.put("details", e.getClass().getSimpleName());
-            response.put("deviceId", deviceId);
-
-            return ResponseEntity.internalServerError().body(response);
+            response.put("status", "not_found");
+            response.put("message", "No data found for device: " + deviceId);
+            return ResponseEntity.status(404).body(response);
         }
-    }
 
-    @GetMapping("/counter/{counterName}/latest")
-    public ResponseEntity<?> getLatestByCounter(
-            @PathVariable("counterName") String counterName
-    ) {
-        try {
-            log.info("🔍 Fetching latest data for counter: {}", counterName);
+        // Return direct fields (no wrapper) - LiveCounterStatusService checks for absence of "status" field
+        Map<String, Object> response = new HashMap<>();
+        response.put("id", data.getId());
+        response.put("deviceId", data.getDeviceId());
+        response.put("counterName", data.getCounterName());
+        response.put("occupancy", data.getOccupancy());
+        response.put("inCount", data.getInCount());
+        response.put("waitTime", data.getWaitTime());
+        response.put("timestamp", data.getTimestamp());
 
-            MqttDataEntity data =
-                    mqttDataService.getLatestByCounterName(counterName);
-
-            if (data == null) {
-                log.warn("⚠️ No data found for counter: {}", counterName);
-
-                Map<String, Object> response = new HashMap<>();
-                response.put("status", "not_found");
-                response.put("message", "No data found for counter: " + counterName);
-                response.put("counterName", counterName);
-                response.put("timestamp", LocalDateTime.now());
-
-                return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
-            }
-
-            log.info("✅ Found data for counter {}: id={}, device={}",
-                    counterName, data.getId(), data.getDeviceId());
-
-            return ResponseEntity.ok(data);
-
-        } catch (Exception e) {
-            log.error("❌ Error fetching latest data for counter {}", counterName, e);
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("status", "error");
-            response.put("message", "Error fetching data");
-            response.put("details", e.getClass().getSimpleName());
-            response.put("counterName", counterName);
-
-            return ResponseEntity.internalServerError().body(response);
-        }
-    }
-
-
-    @GetMapping("/device/{deviceId}")
-    public ResponseEntity<?> getAllByDevice(
-            @PathVariable("deviceId") String deviceId
-    ) {
-        try {
-            log.info("🔍 Fetching all data for device: {}", deviceId);
-
-            List<MqttDataEntity> data =
-                    mqttDataRepository.findAllByDeviceId(deviceId);
-
-            log.info("✅ Found {} records for device: {}", data.size(), deviceId);
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("status", "success");
-            response.put("deviceId", deviceId);
-            response.put("count", data.size());
-            response.put("data", data);
-            response.put("timestamp", LocalDateTime.now());
-
-            return ResponseEntity.ok(response);
-
-        } catch (Exception e) {
-            log.error("❌ Error fetching all data for device {}", deviceId, e);
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("status", "error");
-            response.put("message", "Error fetching data");
-            response.put("details", e.getClass().getSimpleName());
-            response.put("deviceId", deviceId);
-
-            return ResponseEntity.internalServerError().body(response);
-        }
+        return ResponseEntity.ok(response);
     }
 
 
     @GetMapping("/recent")
-    public ResponseEntity<?> getRecent(
-            @RequestParam(name = "limit", defaultValue = "10") int limit
+    public ResponseEntity<Map<String, Object>> getRecent(@RequestParam(defaultValue = "10") int limit) {
+        return getLatest(limit);  // Alias for /latest
+    }
+
+    /**
+     * Get all historical records for a device
+     * Used by LiveCounterStatusService.getOccupancyTrends()
+     *
+     * Returns {"status": "success", "data": [...]} format
+     */
+    @GetMapping("/device/{deviceId}")
+    public ResponseEntity<Map<String, Object>> getAllByDevice(
+            @PathVariable String deviceId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startTime,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endTime
     ) {
-        try {
-            log.info("🔍 Fetching recent data with limit: {}", limit);
+        log.debug("📊 Fetching all data for device: {} (start: {}, end: {})", deviceId, startTime, endTime);
 
-            if (limit <= 0 || limit > 1000) {
-                Map<String, Object> response = new HashMap<>();
-                response.put("status", "error");
-                response.put("message", "Limit must be between 1 and 1000");
-                return ResponseEntity.badRequest().body(response);
-            }
+        List<MqttDataEntity> dataList;
 
-            Pageable pageable = PageRequest.of(0, limit);
-            List<MqttDataEntity> recent = mqttDataRepository.findRecentRecords(pageable);
-
-            log.info("✅ Found {} recent records", recent.size());
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("status", "success");
-            response.put("count", recent.size());
-            response.put("limit", limit);
-            response.put("data", recent);
-            response.put("timestamp", LocalDateTime.now());
-
-            return ResponseEntity.ok(response);
-
-        } catch (Exception e) {
-            log.error("❌ Error fetching recent data", e);
-
-            Map<String, Object> response = new HashMap<>();
-            response.put("status", "error");
-            response.put("message", "Error fetching recent data");
-            response.put("details", e.getClass().getSimpleName());
-
-            return ResponseEntity.internalServerError().body(response);
+        if (startTime != null && endTime != null) {
+            // Query with time range - need to add this to repository
+            dataList = mqttDataRepository.findByDeviceIdAndTimestampBetween(deviceId, startTime, endTime);
+        } else {
+            // Get all records for device
+            dataList = mqttDataRepository.findAllByDeviceId(deviceId);
         }
+
+        // Convert to Map format expected by LiveCounterStatusService
+        List<Map<String, Object>> data = dataList.stream()
+                .map(this::entityToMap)
+                .collect(Collectors.toList());
+
+        // LiveCounterStatusService expects this exact format
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "success");
+        response.put("data", data);
+        response.put("count", data.size());
+        response.put("deviceId", deviceId);
+
+        return ResponseEntity.ok(response);
     }
 
+    /**
+     * Get latest records for multiple devices (useful for counter aggregation)
+     */
+    @GetMapping("/devices/latest")
+    public ResponseEntity<Map<String, Object>> getLatestForDevices(@RequestParam List<String> deviceIds) {
+        log.debug("📊 Fetching latest data for {} devices", deviceIds.size());
 
+        Map<String, Map<String, Object>> deviceDataMap = new HashMap<>();
+
+        for (String deviceId : deviceIds) {
+            MqttDataEntity data = mqttDataService.getLatestByDeviceId(deviceId);
+            if (data != null) {
+                deviceDataMap.put(deviceId, entityToMap(data));
+            }
+        }
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "success");
+        response.put("devices", deviceDataMap);
+        response.put("requestedCount", deviceIds.size());
+        response.put("foundCount", deviceDataMap.size());
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Get latest data by counter name
+     */
+    @GetMapping("/counter/{counterName}/latest")
+    public ResponseEntity<Map<String, Object>> getLatestByCounter(@PathVariable String counterName) {
+        log.debug("📊 Fetching latest data for counter: {}", counterName);
+
+        MqttDataEntity data = mqttDataService.getLatestByCounterName(counterName);
+
+        if (data == null) {
+            Map<String, Object> response = new HashMap<>();
+            response.put("status", "not_found");
+            response.put("message", "No data found for counter: " + counterName);
+            return ResponseEntity.status(404).body(response);
+        }
+
+        return ResponseEntity.ok(entityToMap(data));
+    }
+
+    /**
+     * Get all records for a counter within time range
+     */
+    @GetMapping("/counter/{counterName}")
+    public ResponseEntity<Map<String, Object>> getAllByCounter(
+            @PathVariable String counterName,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startTime,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endTime
+    ) {
+        log.debug("📊 Fetching all data for counter: {} (start: {}, end: {})", counterName, startTime, endTime);
+
+        List<MqttDataEntity> dataList;
+
+        if (startTime != null && endTime != null) {
+            dataList = mqttDataRepository.findByCounterAndTimestampRange(counterName, startTime, endTime);
+        } else {
+            dataList = mqttDataRepository.findLatestByCounterName(
+                    counterName,
+                    PageRequest.of(0, 1000) // Last 1000 records
+            );
+        }
+
+        List<Map<String, Object>> data = dataList.stream()
+                .map(this::entityToMap)
+                .collect(Collectors.toList());
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "success");
+        response.put("data", data);
+        response.put("count", data.size());
+        response.put("counterName", counterName);
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Get latest records (for dashboard overview)
+     */
+    @GetMapping("/latest")
+    public ResponseEntity<Map<String, Object>> getLatest(@RequestParam(defaultValue = "10") int limit) {
+        log.debug("📊 Fetching latest {} records", limit);
+
+        List<MqttDataEntity> dataList = mqttDataRepository.findRecentRecords(PageRequest.of(0, limit));
+
+        List<Map<String, Object>> data = dataList.stream()
+                .map(this::entityToMap)
+                .collect(Collectors.toList());
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "success");
+        response.put("data", data);
+        response.put("count", data.size());
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Get all unique device IDs
+     */
+    @GetMapping("/devices")
+    public ResponseEntity<Map<String, Object>> getAllDevices() {
+        log.debug("📊 Fetching all device IDs");
+
+        List<String> devices = mqttDataRepository.findAllDeviceIds();
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "success");
+        response.put("devices", devices);
+        response.put("count", devices.size());
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Get all unique counter names
+     */
+    @GetMapping("/counters")
+    public ResponseEntity<Map<String, Object>> getAllCounters() {
+        log.debug("📊 Fetching all counter names");
+
+        List<String> counters = mqttDataRepository.findAllCounterNames();
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "success");
+        response.put("counters", counters);
+        response.put("count", counters.size());
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Get system statistics
+     */
     @GetMapping("/stats")
-    public ResponseEntity<Map<String, Object>> getStatistics() {
-        try {
-            Map<String, Object> stats = new HashMap<>();
-            long totalRecords = mqttDataRepository.count();
-            stats.put("status", "success");
-            stats.put("totalRecords", totalRecords);
-            stats.put("timestamp", LocalDateTime.now());
-            if (totalRecords > 0) {
-                Pageable pageable = PageRequest.of(0, 1);
-                List<MqttDataEntity> recent = mqttDataRepository.findRecentRecords(pageable);
-                if (!recent.isEmpty()) {
-                    MqttDataEntity lastRecord = recent.get(0);
-                    stats.put("lastMessageTime", lastRecord.getTimestamp());
-                    stats.put("lastDeviceId", lastRecord.getDeviceId());
-                    stats.put("lastCounterName", lastRecord.getCounterName());
-                    stats.put("lastOccupancy", lastRecord.getOccupancy());
-                    stats.put("lastInCount", lastRecord.getInCount());
-                    stats.put("lastWaitTime", lastRecord.getWaitTime());
-                }
-                try {
-                    List<String> deviceIds = mqttDataRepository.findAllDeviceIds();
-                    List<String> counterNames = mqttDataRepository.findAllCounterNames();
-                    stats.put("uniqueDevices", deviceIds.size());
-                    stats.put("uniqueCounters", counterNames.size());
-                    stats.put("deviceIds", deviceIds);
-                    stats.put("counterNames", counterNames);
-                } catch (Exception e) {
-                    log.warn("Could not fetch unique devices/counters: {}", e.getMessage());
-                }
-            }
-            return ResponseEntity.ok(stats);
-        } catch (Exception e) {
-            log.error("❌ Error fetching stats: {}", e.getMessage(), e);
-            Map<String, Object> response = new HashMap<>();
-            response.put("status", "error");
-            response.put("message", "Error fetching stats: " + e.getMessage());
-            response.put("details", e.getClass().getSimpleName());
-            return ResponseEntity.status(500).body(response);
+    public ResponseEntity<Map<String, Object>> getStats() {
+        log.debug("📊 Fetching system statistics");
+
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("totalRecords", mqttDataRepository.count());
+        stats.put("deviceCount", mqttDataRepository.findAllDeviceIds().size());
+        stats.put("counterCount", mqttDataRepository.findAllCounterNames().size());
+
+        List<MqttDataEntity> latest = mqttDataRepository.findRecentRecords(PageRequest.of(0, 1));
+        if (!latest.isEmpty()) {
+            stats.put("lastUpdate", latest.get(0).getTimestamp());
         }
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "success");
+        response.put("statistics", stats);
+
+        return ResponseEntity.ok(response);
     }
 
-    @DeleteMapping("/all")
-    public ResponseEntity<Map<String, Object>> deleteAll() {
-        try {
-            long count = mqttDataRepository.count();
-            mqttDataRepository.deleteAll();
-            log.info("🗑️ Deleted {} records", count);
-            Map<String, Object> response = new HashMap<>();
-            response.put("status", "success");
-            response.put("message", "All data deleted");
-            response.put("deletedCount", count);
-            response.put("timestamp", LocalDateTime.now());
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            log.error("❌ Error deleting all data: {}", e.getMessage(), e);
-            Map<String, Object> response = new HashMap<>();
-            response.put("status", "error");
-            response.put("message", "Error deleting data: " + e.getMessage());
-            response.put("details", e.getClass().getSimpleName());
-            return ResponseEntity.internalServerError().body(response);
-        }
-    }
-
+    /**
+     * Health check endpoint
+     */
     @GetMapping("/health")
-    public ResponseEntity<Map<String, Object>> healthCheck() {
+    public ResponseEntity<Map<String, Object>> health() {
         Map<String, Object> health = new HashMap<>();
         health.put("status", "UP");
         health.put("service", "MQTT Data Service");
         health.put("timestamp", LocalDateTime.now());
-        try {
-            long count = mqttDataRepository.count();
-            health.put("databaseConnected", true);
-            health.put("recordCount", count);
-            if (count > 0) {
-                Pageable pageable = PageRequest.of(0, 1);
-                List<MqttDataEntity> testRecent = mqttDataRepository.findRecentRecords(pageable);
-                health.put("queryMethodsWorking", !testRecent.isEmpty());
-                if (!testRecent.isEmpty()) {
-                    MqttDataEntity latest = testRecent.get(0);
-                    health.put("latestDeviceId", latest.getDeviceId());
-                    health.put("latestCounterName", latest.getCounterName());
-                }
-            }
-        } catch (Exception e) {
-            health.put("databaseConnected", false);
-            health.put("error", e.getMessage());
-            health.put("errorType", e.getClass().getSimpleName());
-            log.error("❌ Health check failed: {}", e.getMessage(), e);
-        }
+
         return ResponseEntity.ok(health);
+    }
+
+    // ==================== HELPER METHOD ====================
+
+    /**
+     * Convert entity to Map format
+     */
+    private Map<String, Object> entityToMap(MqttDataEntity entity) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("id", entity.getId());
+        map.put("deviceId", entity.getDeviceId());
+        map.put("counterName", entity.getCounterName());
+        map.put("occupancy", entity.getOccupancy());
+        map.put("inCount", entity.getInCount());
+        map.put("waitTime", entity.getWaitTime());
+        map.put("timestamp", entity.getTimestamp());
+        map.put("createdAt", entity.getCreatedAt());
+        return map;
     }
 }

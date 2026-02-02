@@ -9,7 +9,7 @@ spring:
 
   # PostgreSQL Database Configuration
   datasource:
-    url: jdbc:postgresql://45.79.122.134:5432/cafeteriamasterdata
+    url: jdbc:postgresql://45.79.121.181:5432/cafeteriamasterdata
     username: jack2872
     password: Tester@4723$
     driver-class-name: org.postgresql.Driver
